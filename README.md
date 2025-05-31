@@ -29,3 +29,5 @@ OPENAI_API_KEY="YOUR_KEY"
 
 3. Using the notebook:
 You have to enter the path to the Python file you want to analyze in the `CODE_PATH` variable at the start of the notebook. The report will be stored unter `reports`.
+
+Have fun with the agent!
