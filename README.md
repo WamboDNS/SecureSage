@@ -1,6 +1,6 @@
 # SecureSage
 
-**SecureSage** is an automated code reviewer focused on Python security. It combines static analysis (Bandit), structural inspection (AST), and LLM-based reasoning to identify vulnerabilities and explain how to fix them.
+**SecureSage** is an automated code review agent focused on Python security. It combines static analysis (Bandit), structural inspection (AST), and LLM-based reasoning to identify vulnerabilities and explain how to fix them.
 
 This project is built entirely in a Jupyter notebook and serves as a demonstration of a self-contained reasoning agent that uses tools effectively.
 
