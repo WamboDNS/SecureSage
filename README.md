@@ -29,6 +29,8 @@ OPENAI_API_KEY="YOUR_KEY"
 
 3. Using the notebook:
 You have to enter the path to the Python file you want to analyze in the `CODE_PATH` variable at the start of the notebook. The report will be stored unter `reports`.
+You have the option to either let the agent scan recursively though a directory or just analyze a single file. If you choose the directory, the agent will generate a summary and a rather short report for each file.
+If instead, you choose a single file, the report will go more into detail and be more thorough.
 
 Have fun with the agent!
 
