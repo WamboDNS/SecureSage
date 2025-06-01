@@ -1,0 +1,4 @@
+# ./test_project/requirements.txt
+requests==2.25.0
+flask==1.1.2 
+numpy==1.26.0
