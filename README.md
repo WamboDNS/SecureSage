@@ -7,6 +7,10 @@ This project is built entirely in a Jupyter notebook and serves as a demonstrati
 ## What it does
 
 - ReAct-style loop with real tool execution (Bandit, AST parsing, LLM fix generation)
+- Anayzes Python code for security issues. More specifically, it:
+  - Scans for known vulnerabilities in dependencies
+  - Identifies insecure coding patterns
+  - Suggests fixes and improvements
 - Runs inside a notebook with full visibility of every step
 - Tool output and agent thoughts are printed for inspection
 - Generates clean Markdown reports summarizing security findings
