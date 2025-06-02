@@ -5,9 +5,12 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "bandit>=1.8.3",
+    "marimo>=0.13.15",
     "notebook>=7.4.3",
     "openai>=1.82.1",
     "pip-audit>=2.9.0",
     "python-dotenv>=1.1.0",
     "requests>=2.32.3",
+    "ruff>=0.11.12",
 ]
