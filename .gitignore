@@ -174,3 +174,4 @@ cython_debug/
 .pypirc
 
 reports/
+example_code/davids_project/

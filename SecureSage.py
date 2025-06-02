@@ -24,7 +24,7 @@ def _():
     import ast
     import requests
     import sys
-
+    import markdown
     dotenv.load_dotenv()
 
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
@@ -43,6 +43,7 @@ def _():
         Union,
         ast,
         json,
+        markdown,
         os,
         re,
         requests,
@@ -75,7 +76,7 @@ def _():
     - doc_search_with_brave(query: str) -> str: Performs a live search using the Brave Search API to retrieve recent documentation and best practices from sources like OWASP, CWE, and security blogs. The results are summarized using your reasoning ability. Use this tool when you need external context or to validate the risk or mitigation of a specific pattern identified in ANY file type.
     - suggest_fix(issue: str, code_snippet: str) -> str: Proposes a secure version of a code snippet that mitigates a vulnerability. This is primarily for Python code, but can be adapted for configuration files if the issue is simple (e.g., removing a hardcoded secret). Clearly state if the fix applies to a non-Python file.
 
-    You may call one tool per turn, for up to 10 turns, before giving your final answer.
+    You may call one tool per turn, for up to 15 turns, before giving your final answer.
 
     When analyzing a directory with multiple files, or a single file that might be part of a larger project:
     - First, load all files using `load_files` to get a comprehensive overview of the project.
@@ -426,7 +427,7 @@ def _(
 
 
 @app.cell
-def _(Any, Dict, Optional, json, os, re):
+def _(Any, Dict, Optional, json, markdown, os, re):
     def parse_thinking_from_response(response: str) -> Optional[str]:
         """Extract the <think> block from the LLM response."""
         match = re.search(r"<think>(.*?)</think>", response, re.DOTALL)
@@ -488,35 +489,91 @@ def _(Any, Dict, Optional, json, os, re):
 
 
     def split_and_write_answers(
-        raw_answer: str, output_dir: str = "reports"
+        raw_answer: str,
+        output_dir: str = "reports",
+        generate_md: bool = True,
+        generate_html: bool = True
     ) -> None:
         """
-        Splits a SecureSage response block into individual sections per file and writes each to its own .md file.
+        Splits a SecureSage response block into individual sections per file and
+        writes each to its own .md and/or .html file.
         Sections must start with:   Name of the file being analyzed: <filename>
         and end with:               ---------------------------------
         """
+        if not generate_md and not generate_html:
+            print("Info: No output format selected (generate_md and generate_html are both False). No reports written.")
+            return
+
         os.makedirs(output_dir, exist_ok=True)
 
         # Split at each delimiter
-        sections = raw_answer.strip().split("---------------------------------")
+        # Add a filter to remove empty strings that can result from trailing delimiters
+        sections = [s.strip() for s in raw_answer.strip().split("---------------------------------") if s.strip()]
 
-        for section in sections:
+
+        for section_content in sections:
             # Find the file name
             file_match = re.search(
-                r"Name of the file being analyzed:\s*(.+)", section
+                r"Name of the file being analyzed:\s*(.+)", section_content # Use section_content
             )
             if not file_match:
-                continue  # skip malformed blocks
+                print(f"Warning: Could not find 'Name of the file being analyzed:' in section. Skipping block:\n---\n{section_content[:200]}...\n---")
+                continue 
 
-            file_name = file_match.group(1).strip()
-            safe_name = sanitize_filename(file_name)
-            file_path = os.path.join(output_dir, f"{safe_name}.md")
+            file_name_from_report = file_match.group(1).strip()
+            safe_name_base = sanitize_filename(file_name_from_report) # Get base for filenames
 
-            # Write the rest of the section to file
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write("# SecureSage Security Report\n\n")
-                f.write(section.strip())
-                f.write("\n")
+            report_title = f"# SecureSage Security Report: {file_name_from_report}\n\n"
+            # The content for the file should not include the "Name of the file being analyzed:" line itself,
+            # if we are already putting it in the title or if the safe_name_base is enough.
+            # Let's keep the section_content as is for now, as it's structured by the LLM.
+
+            if generate_md:
+                md_file_path = os.path.join(output_dir, f"{safe_name_base}.md")
+                try:
+                    with open(md_file_path, "w", encoding="utf-8") as f:
+                        # f.write(report_title) # The report_title might be redundant if section_content already has it
+                        f.write(section_content) # section_content already contains "Name of the file..."
+                        f.write("\n")
+                except Exception as e:
+                    print(e)
+
+            if generate_html:
+                html_file_path = os.path.join(output_dir, f"{safe_name_base}.html")
+                try:
+                    # Convert the Markdown section content to HTML
+                    # You can add extensions for more features, e.g., 'markdown.extensions.fenced_code' for code blocks
+                    # 'markdown.extensions.tables' for tables, etc.
+                    html_content = markdown.markdown(
+                        section_content, 
+                        extensions=['fenced_code', 'tables', 'nl2br'] # nl2br for line breaks
+                    )
+
+                    # Basic HTML structure
+                    html_template = f"""<!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>SecureSage Report: {file_name_from_report}</title>
+        <style>
+            body {{ font-family: sans-serif; line-height: 1.6; margin: 20px; max-width: 800px; margin-left: auto; margin-right: auto; }}
+            h1, h2, h3 {{ color: #333; }}
+            pre {{ background-color: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }}
+            code {{ font-family: monospace; }}
+            table {{ border-collapse: collapse; width: 100%; margin-bottom: 1em; }}
+            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+            th {{ background-color: #f2f2f2; }}
+        </style>
+    </head>
+    <body>
+        {html_content}
+    </body>
+    </html>"""
+                    with open(html_file_path, "w", encoding="utf-8") as f:
+                        f.write(html_template)
+                except Exception as e:
+                    print(e)
     return (
         parse_answer_from_response,
         parse_thinking_from_response,
@@ -564,6 +621,7 @@ def _(
 
     file_name = os.path.basename(CODE_PATH).replace(".py", "")
 
+    print(f"Agent starting to analyze... {CODE_PATH}")
     while tool_call_count < max_turns:
         print(f"=============== AGENT TURN {tool_call_count} ================")
         response = client.chat.completions.create(
