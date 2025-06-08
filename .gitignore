@@ -175,3 +175,4 @@ cython_debug/
 
 reports/
 example_code/davids_project/
+.DS_Store

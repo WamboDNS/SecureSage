@@ -305,7 +305,7 @@ def _(
         Returns JSON string with audit results and metadata.
         """
         project_path = os.path.abspath(project_path)
-    
+
         # Find dependency file to audit
         dep_files = {
             "requirements.txt": ["--no-deps", "--disable-pip", "-r"],
@@ -314,7 +314,7 @@ def _(
             "poetry.lock": [],
             "pdm.lock": []
         }
-    
+
         # Try to find a dependency file
         dep_file = None
         for file, flags in dep_files.items():
@@ -322,7 +322,7 @@ def _(
                 dep_file = file
                 extra_flags = flags
                 break
-    
+
         if not dep_file:
             return json.dumps({
                 "status": "No dependency files found to audit",
@@ -334,7 +334,7 @@ def _(
         if extra_flags:
             cmd.extend(extra_flags)
             cmd.append(os.path.join(project_path, dep_file))
-    
+
         try:
             # Run pip-audit
             result = subprocess.run(
@@ -344,7 +344,7 @@ def _(
                 cwd=project_path,
                 check=False
             )
-        
+
             # Build response
             response = {
                 "source_audited": f"Audit of {dep_file}",
@@ -353,15 +353,15 @@ def _(
                 "stdout": result.stdout,
                 "stderr": result.stderr.strip() or "N/A"
             }
-        
+
             # Add status message
             if result.returncode != 0:
                 response["status_message"] = "Vulnerabilities found or error occurred"
             else:
                 response["status_message"] = "No vulnerabilities found" if "No known vulnerabilities found" in result.stdout else "Review stdout for details"
-            
+
             return json.dumps(response, indent=2)
-        
+
         except FileNotFoundError:
             return json.dumps({
                 "error": f"pip-audit not found in {sys.prefix}",
@@ -411,38 +411,38 @@ def _(Any, Dict, Optional, json, markdown, os, re):
 
     def sanitize_filename(name: str) -> str:
         """Sanitize a filename for safe filesystem usage.
-    
+
         Transforms input into a clean, URL-friendly format with SecureSage prefix.
         Example: 'path/to/file.py' -> 'SecureSage-Report-path-to-file'
-    
+
         Args:
             name: Original filename or path to sanitize
-        
+
         Returns:
             Sanitized filename, max 250 chars, prefixed with 'SecureSage-Report-'
         """
         PREFIX = "SecureSage-Report-"
         MAX_LENGTH = 250
-    
+
         # Handle summary case
         if name.lower() == "summary":
             return f"{PREFIX}summary"
-        
+
         # Remove leading path components
         name = re.sub(r"^[./\\]+", "", name)
         name = re.sub(r"^[./\\]+", "", name)  # Handle double leading slashes
-    
+
         # Convert to slug format
         slug = name.split(".")[0]  # Remove extension
         slug = slug.lower()
         slug = re.sub(r"[^a-z0-9\-]+", "-", slug)  # Replace non-alphanumeric with hyphens
         slug = re.sub(r"-+", "-", slug)  # Collapse multiple hyphens
         slug = slug.strip("-")  # Remove leading/trailing hyphens
-    
+
         # Handle empty result
         if not slug:
             slug = "untitled-report"
-        
+
         return f"{PREFIX}{slug}"[:MAX_LENGTH]
 
 
@@ -595,14 +595,14 @@ def _(
             f"[bold blue]Agent Turn {tool_call_count}[/bold blue]",
             border_style="blue"
         ))
-    
+
         with Progress() as progress:
             task = progress.add_task("[cyan]Thinking...", total=None)
             response = client.chat.completions.create(
                 model=model,
                 messages=messages,
             )
-    
+
         reply = response.choices[0].message.content
         messages.append({"role": "assistant", "content": reply})
 
