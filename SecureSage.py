@@ -6,7 +6,7 @@ app = marimo.App(width="medium", app_title="SecureSage")
 
 @app.cell
 def _():
-    CODE_PATH = "./example_code/test_project/"
+    CODE_PATH = "./example_code/code1.py"
     return (CODE_PATH,)
 
 
@@ -141,59 +141,36 @@ def _(
     tempfile,
 ):
     def load_files(path: Union[str, os.PathLike]) -> List[Tuple[str, str]]:
-        """
-        Recursively loads all non-hidden files from a file or directory.
-        Attempts to read files as UTF-8 text. If a file cannot be decoded,
-        a placeholder message is returned as its content.
+        """Load all non-hidden files from a path, returning [(file_path, content), ...]"""
+        files = []
+        path = os.path.normpath(path)
 
-        Returns:
-            List of tuples: [(file_path, file_content), ...]
-        """
-        files_to_load = []
-        normalized_path = os.path.normpath(path)
-
-        def read_file_content(file_path: str) -> str:
+        def read_file(file_path: str) -> str:
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     return f.read()
             except UnicodeDecodeError:
-                return f"[Cannot decode file as UTF-8 text: {os.path.basename(file_path)} - likely a binary file]"
+                return f"[Binary file: {os.path.basename(file_path)}]"
             except Exception as e:
-                return f"[Error reading file {os.path.basename(file_path)}: {e}]"
+                return f"[Error reading {os.path.basename(file_path)}: {e}]"
 
-        if os.path.isfile(normalized_path):
-            content = read_file_content(normalized_path)
-            files_to_load.append((normalized_path, content))
-
-        elif os.path.isdir(normalized_path):
-            for root, dirs, filenames in os.walk(normalized_path):
-                # Filter out hidden directories from further traversal
+        if os.path.isfile(path):
+            files.append((path, read_file(path)))
+        elif os.path.isdir(path):
+            for root, dirs, filenames in os.walk(path):
                 dirs[:] = [d for d in dirs if not d.startswith(".")]
-
                 for filename in filenames:
-                    if filename.startswith("."):  # Skip hidden files
-                        continue
-
-                    full_path = os.path.join(root, filename)
-                    if os.path.isfile(
-                        full_path
-                    ):  # Ensure it's a file (os.walk can list other things)
-                        content = read_file_content(full_path)
-                        files_to_load.append((full_path, content))
+                    if not filename.startswith("."):
+                        full_path = os.path.join(root, filename)
+                        if os.path.isfile(full_path):
+                            files.append((full_path, read_file(full_path)))
         else:
-            raise ValueError(
-                f"Path must be a valid file or a directory: {normalized_path}"
-            )
+            raise ValueError(f"Invalid path: {path}")
 
-        if not files_to_load and (
-            os.path.isfile(normalized_path) or os.path.isdir(normalized_path)
-        ):
-            # This might occur if a directory is empty or contains only hidden files.
-            print(
-                f"Info: No non-hidden files were loaded from '{normalized_path}'."
-            )
+        if not files and (os.path.isfile(path) or os.path.isdir(path)):
+            print(f"No non-hidden files found in '{path}'")
 
-        return files_to_load
+        return files
 
 
     def static_analysis(code: str) -> list:
@@ -325,97 +302,78 @@ def _(
     def check_dependencies(project_path: str) -> str:
         """
         Checks project dependencies for vulnerabilities using pip-audit.
-        Returns the RAW TEXT OUTPUT from pip-audit (NO --json FLAG USED).
-        The LLM agent is expected to parse this text.
-        Uses 'sys.executable -m pip_audit'.
-        This version has no internal print statements.
+        Returns JSON string with audit results and metadata.
         """
-        resolved_project_path = os.path.abspath(project_path)
-
-        base_command = [sys.executable, "-m", "pip_audit", "--progress-spinner", "off"]
-        final_command_list = []
-        source_description = "" 
-        cwd_for_audit = resolved_project_path
-
-        req_txt_path = os.path.join(resolved_project_path, "requirements.txt")
-        req_lock_path = os.path.join(resolved_project_path, "uv.lock")
-        target_req_file_for_r_flag = None
-
-        if os.path.exists(req_lock_path):
-            target_req_file_for_r_flag = req_lock_path
-        elif os.path.exists(req_txt_path):
-            target_req_file_for_r_flag = req_txt_path
-
-        if target_req_file_for_r_flag:
-            source_description = f"Audit of {os.path.basename(target_req_file_for_r_flag)}"
-            final_command_list = base_command + ["--no-deps", "--disable-pip", "-r", target_req_file_for_r_flag]
-        else:
-            can_auto_detect = any(os.path.exists(os.path.join(resolved_project_path, f))
-                                  for f in ["pyproject.toml", "poetry.lock", "pdm.lock"])
-            if can_auto_detect:
-                source_description = f"Project Directory Scan based on {project_path}"
-                final_command_list = base_command 
-            else:
-                status_msg = "No common dependency files (requirements.txt/lock, pyproject.toml, poetry.lock, pdm.lock) found to audit."
-                return json.dumps({"status": status_msg, "source_checked": project_path})
-
-        final_command_used_str = " ".join(final_command_list)
-
-        try:
-            process = subprocess.run(
-                final_command_list,
-                capture_output=True,
-                text=True, 
-                cwd=cwd_for_audit,
-                check=False 
-            )
-            raw_stdout = process.stdout 
-            raw_stderr = process.stderr.strip()
-            return_code = process.returncode
-
-            result_payload = {
-                "source_audited": source_description,
-                "command_used": final_command_used_str,
-                "return_code": return_code,
-                "stdout": raw_stdout, 
-                "stderr": raw_stderr if raw_stderr else "N/A"
-            }
-
-            if return_code != 0:
-                result_payload["status_message"] = "pip-audit completed with a non-zero exit code. This may indicate vulnerabilities found or an error."
-            else:
-                if "No known vulnerabilities found" in raw_stdout: # Quick check for common success message
-                     result_payload["status_message"] = "pip-audit completed successfully. No known vulnerabilities found."
-                else:
-                     result_payload["status_message"] = "pip-audit completed successfully. Review stdout for vulnerability details."
-
-        except FileNotFoundError:
-            # Construct the error payload without relying on final_command_used_str if it wasn't set
-            # (though with current logic, it should always be set if this point is reached after file checks)
-            cmd_attempt_info = f"{sys.executable} -m pip_audit ..." # Generic command
-            if final_command_list: # If command was actually constructed
-                cmd_attempt_info = " ".join(final_command_list)
-
+        project_path = os.path.abspath(project_path)
+    
+        # Find dependency file to audit
+        dep_files = {
+            "requirements.txt": ["--no-deps", "--disable-pip", "-r"],
+            "uv.lock": ["--no-deps", "--disable-pip", "-r"],
+            "pyproject.toml": [],
+            "poetry.lock": [],
+            "pdm.lock": []
+        }
+    
+        # Try to find a dependency file
+        dep_file = None
+        for file, flags in dep_files.items():
+            if os.path.exists(os.path.join(project_path, file)):
+                dep_file = file
+                extra_flags = flags
+                break
+    
+        if not dep_file:
             return json.dumps({
-                "error": f"Failed to execute pip-audit. '{sys.executable} -m pip_audit' not found or pip_audit module missing in this environment: {sys.prefix}",
-                "source_checked": source_description if source_description else project_path,
-                "command_attempted_structure": cmd_attempt_info
+                "status": "No dependency files found to audit",
+                "source_checked": project_path
+            })
+
+        # Build command
+        cmd = [sys.executable, "-m", "pip_audit", "--progress-spinner", "off"]
+        if extra_flags:
+            cmd.extend(extra_flags)
+            cmd.append(os.path.join(project_path, dep_file))
+    
+        try:
+            # Run pip-audit
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=project_path,
+                check=False
+            )
+        
+            # Build response
+            response = {
+                "source_audited": f"Audit of {dep_file}",
+                "command_used": " ".join(cmd),
+                "return_code": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr.strip() or "N/A"
+            }
+        
+            # Add status message
+            if result.returncode != 0:
+                response["status_message"] = "Vulnerabilities found or error occurred"
+            else:
+                response["status_message"] = "No vulnerabilities found" if "No known vulnerabilities found" in result.stdout else "Review stdout for details"
+            
+            return json.dumps(response, indent=2)
+        
+        except FileNotFoundError:
+            return json.dumps({
+                "error": f"pip-audit not found in {sys.prefix}",
+                "source_checked": project_path,
+                "command_attempted": " ".join(cmd)
             })
         except Exception as e:
-            # Ensure final_command_used_str is defined or provide a default
-            cmd_str_for_error = "N/A"
-            if 'final_command_used_str' in locals() and final_command_used_str:
-                cmd_str_for_error = final_command_used_str
-            elif final_command_list: # If list was formed but not joined
-                cmd_str_for_error = " ".join(final_command_list)
-
             return json.dumps({
-                "error": f"An unexpected error occurred in check_dependencies: {e}",
-                "command_attempted": cmd_str_for_error,
-                "source_checked": source_description if source_description else project_path
+                "error": f"Unexpected error: {e}",
+                "source_checked": project_path,
+                "command_attempted": " ".join(cmd)
             })
-
-        return json.dumps(result_payload, indent=2)
     return (
         check_dependencies,
         doc_search_with_brave,
@@ -451,41 +409,41 @@ def _(Any, Dict, Optional, json, markdown, os, re):
         match = re.search(r"<answer>(.*?)</answer>", response, re.DOTALL)
         return match.group(1).strip() if match else None
 
-
     def sanitize_filename(name: str) -> str:
-        """Sanitize the file name for pretty and safe filesystem usage.
-        Generates names like 'SecureSage-Report-your-file-name.md' (extension added later).
+        """Sanitize a filename for safe filesystem usage.
+    
+        Transforms input into a clean, URL-friendly format with SecureSage prefix.
+        Example: 'path/to/file.py' -> 'SecureSage-Report-path-to-file'
+    
+        Args:
+            name: Original filename or path to sanitize
+        
+        Returns:
+            Sanitized filename, max 250 chars, prefixed with 'SecureSage-Report-'
         """
-
-        prefix = "SecureSage-Report-"
-
-        # Handle special "summary" case (case-insensitive)
+        PREFIX = "SecureSage-Report-"
+        MAX_LENGTH = 250
+    
+        # Handle summary case
         if name.lower() == "summary":
-            base_name_intermediate = "summary"
-        else:
-            processed_name = name
-            while processed_name.startswith(("./", ".\\")):
-                processed_name = processed_name[2:]
-            while processed_name.startswith(("../", "..\\")):
-                processed_name = processed_name[3:]
-
-            # Replace directory separators with hyphens
-            base_name_intermediate = processed_name.replace("/", "-").replace(
-                "\\", "-"
-            )
-
-            base_name_intermediate = base_name_intermediate.split(".")[0]
-
-        base_name_slug = base_name_intermediate.lower()
-        base_name_slug = re.sub(r"[^a-z0-9\-]+", "-", base_name_slug)
-        base_name_slug = re.sub(r"-+", "-", base_name_slug)
-        base_name_slug = base_name_slug.strip("-")
-
-        if not base_name_slug:
-            base_name_slug = "untitled-report"
-
-        full_sanitized_name = f"{prefix}{base_name_slug}"
-        return full_sanitized_name[:250]
+            return f"{PREFIX}summary"
+        
+        # Remove leading path components
+        name = re.sub(r"^[./\\]+", "", name)
+        name = re.sub(r"^[./\\]+", "", name)  # Handle double leading slashes
+    
+        # Convert to slug format
+        slug = name.split(".")[0]  # Remove extension
+        slug = slug.lower()
+        slug = re.sub(r"[^a-z0-9\-]+", "-", slug)  # Replace non-alphanumeric with hyphens
+        slug = re.sub(r"-+", "-", slug)  # Collapse multiple hyphens
+        slug = slug.strip("-")  # Remove leading/trailing hyphens
+    
+        # Handle empty result
+        if not slug:
+            slug = "untitled-report"
+        
+        return f"{PREFIX}{slug}"[:MAX_LENGTH]
 
 
     def split_and_write_answers(
@@ -510,8 +468,9 @@ def _(Any, Dict, Optional, json, markdown, os, re):
         # Add a filter to remove empty strings that can result from trailing delimiters
         sections = [s.strip() for s in raw_answer.strip().split("---------------------------------") if s.strip()]
 
-
+        print(sections)
         for section_content in sections:
+            print(section_content)
             # Find the file name
             file_match = re.search(
                 r"Name of the file being analyzed:\s*(.+)", section_content # Use section_content
@@ -574,6 +533,7 @@ def _(Any, Dict, Optional, json, markdown, os, re):
                         f.write(html_template)
                 except Exception as e:
                     print(e)
+
     return (
         parse_answer_from_response,
         parse_thinking_from_response,
@@ -616,60 +576,87 @@ def _(
     }
 
 
-    user_input = f"Please analyze {CODE_PATH} for vulnerabilities."
+    user_input = f"Please analyze {CODE_PATH} for vulnerabilities. Make sure to check everything and write a very pretty and detailed report. "
     messages.append({"role": "user", "content": user_input})
 
     file_name = os.path.basename(CODE_PATH).replace(".py", "")
 
     print(f"Agent starting to analyze... {CODE_PATH}")
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.syntax import Syntax
+    from rich.progress import Progress
+    import time
+
+    console = Console()
+
     while tool_call_count < max_turns:
-        print(f"=============== AGENT TURN {tool_call_count} ================")
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-        )
+        console.print(Panel.fit(
+            f"[bold blue]Agent Turn {tool_call_count}[/bold blue]",
+            border_style="blue"
+        ))
+    
+        with Progress() as progress:
+            task = progress.add_task("[cyan]Thinking...", total=None)
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+            )
+    
         reply = response.choices[0].message.content
         messages.append({"role": "assistant", "content": reply})
 
         thought = parse_thinking_from_response(reply)
         if thought:
-            print("\nAgent thought:")
-            print(thought)
+            console.print(Panel(
+                thought,
+                title="[bold yellow]Agent Thought[/bold yellow]",
+                border_style="yellow"
+            ))
 
         answer = parse_answer_from_response(reply)
         if answer:
             split_and_write_answers(answer)
-            print("Report written to markdown.")
+            console.print("[bold green]Report successfully written to markdown![/bold green]")
             break
 
         tool_call = parse_tool_from_response(reply)
         if not tool_call:
-            print("No tool call found. Exiting. Last response:")
-            print(reply)
+            console.print("[bold red]No tool call found. Exiting.[/bold red]")
+            console.print(Panel(reply, title="[bold red]Last Response[/bold red]"))
             break
 
         tool_name = tool_call["name"]
         args = tool_call["args"]
 
-        print("\nTool call:")
-        print(f"Tool: {tool_name}")
-        print(f"Args: {json.dumps(args, indent=2)}")
+        console.print(Panel(
+            f"[bold]Tool:[/bold] {tool_name}\n[bold]Arguments:[/bold]\n{json.dumps(args, indent=2)}",
+            title="[bold blue]Tool Call[/bold blue]",
+            border_style="blue"
+        ))
 
         tool_func = tool_registry.get(tool_name)
         if not tool_func:
-            print(f"Unknown tool: {tool_name}")
+            console.print(f"[bold red]Unknown tool: {tool_name}[/bold red]")
             break
 
         try:
-            result = tool_func(**args)
+            with Progress() as progress:
+                task = progress.add_task("[cyan]Executing tool...", total=None)
+                result = tool_func(**args)
         except Exception as e:
             result = {"error": str(e)}
+            console.print(f"[bold red]Tool execution failed: {str(e)}[/bold red]")
 
-        print("\nTool result:")
-        print(json.dumps(result, indent=2))
+        console.print(Panel(
+            Syntax(json.dumps(result, indent=2), "json", theme="monokai"),
+            title="[bold green]Tool Result[/bold green]",
+            border_style="green"
+        ))
 
         messages.append({"role": "user", "content": json.dumps(result, indent=2)})
         tool_call_count += 1
+        time.sleep(0.5)
     return
 
 
