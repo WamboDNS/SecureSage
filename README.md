@@ -35,7 +35,7 @@ This project is implemented as a self-contained Jupyter Notebook, demonstrating 
     The `BRAVE_API_KEY` is optional and enables the `doc_search_with_brave` tool for external documentation retrieval.
 
 3.  **Running the Analysis:**
-    *   Open the `securesage.ipynb` Jupyter Notebook.
+    *   Open the `securesage.ipynb` Jupyter/Marimo Notebook.
     *   Locate the `CODE_PATH` variable in the first code cell.
     *   Set `CODE_PATH` to the target for analysis:
         *   **Single File Analysis:**

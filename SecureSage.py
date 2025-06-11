@@ -1,12 +1,16 @@
 import marimo
 
 __generated_with = "0.13.15"
-app = marimo.App(width="medium", app_title="SecureSage")
+app = marimo.App(
+    width="medium",
+    app_title="SecureSage",
+    auto_download=["ipynb"],
+)
 
 
 @app.cell
 def _():
-    CODE_PATH = "./example_code/code1.py"
+    CODE_PATH = "./example_code/code4.py"
     return (CODE_PATH,)
 
 
@@ -118,9 +122,8 @@ def _():
       - The most critical vulnerabilities found across ALL file types.
       - A summary of any known vulnerabilities found in third-party dependencies.
       - General recommendations or patterns observed.
-    Then, provide a detailed report for each *significant* file analyzed (prioritize Python files and any non-Python files where issues were found). All reports (summary and per-file) should be in one answer block, separated by "---------------------------------".
+    Then, provide a detailed report for each *relevant* file analyzed (prioritize Python files and any non-Python files where issues were found). All reports (summary and per-file) should be in one answer block, separated by "---------------------------------".
     Use the name "summary" for the summary section. If only a single file was analyzed, omit the summary block.
-    </answer>
     """
     return (system_prompt,)
 
@@ -468,9 +471,7 @@ def _(Any, Dict, Optional, json, markdown, os, re):
         # Add a filter to remove empty strings that can result from trailing delimiters
         sections = [s.strip() for s in raw_answer.strip().split("---------------------------------") if s.strip()]
 
-        print(sections)
         for section_content in sections:
-            print(section_content)
             # Find the file name
             file_match = re.search(
                 r"Name of the file being analyzed:\s*(.+)", section_content # Use section_content
