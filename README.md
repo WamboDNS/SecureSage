@@ -124,7 +124,7 @@ SecureSage generates detailed security reports in both Markdown and HTML formats
 
 ```
 securesage/
-├── SecureSage.py          # Main Marimo notebook
+├── SecureSage.py          # Main Marimo notebook / app
 ├── example_code/          # Example code for testing
 ├── reports/              # Generated security reports
 ├── pyproject.toml        # Project dependencies

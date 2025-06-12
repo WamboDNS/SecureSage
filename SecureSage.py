@@ -1,21 +1,17 @@
 import marimo
 
 __generated_with = "0.13.15"
-app = marimo.App(
-    width="medium",
-    app_title="SecureSage",
-    auto_download=["ipynb"],
-)
+app = marimo.App(width="medium", app_title="SecureSage")
 
 
 @app.cell
-def _():
+def _(os):
     import sys
     def get_code_path():
         # Check if path is provided as command line argument
         if len(sys.argv) > 1:
             return sys.argv[1]
-        
+
         # If no argument provided, prompt the user
         while True:
             path = input("Enter the path to analyze (file or directory): ").strip()
@@ -24,7 +20,7 @@ def _():
             print(f"Error: Path '{path}' does not exist. Please try again.")
 
     CODE_PATH = get_code_path()
-    return (CODE_PATH,)
+    return CODE_PATH, sys
 
 
 @app.cell
@@ -64,7 +60,6 @@ def _():
         re,
         requests,
         subprocess,
-        sys,
         tempfile,
     )
 
@@ -121,11 +116,133 @@ def _():
     When you are done, provide a clear and structured security review in the following format:
 
     <answer>
-    Name of the file being analyzed: $FILE_NAME
-    1. Summary of File/Code Purpose (If $FILE_NAME is "summary", this should be an overall project summary)
-    2. Detected Vulnerabilities (with file paths, line numbers if applicable, and severity) and explanation of each issue (why it's dangerous, relevant CVE/CWE/OWASP ref). Clearly distinguish between issues in Python code versus issues in configuration or other file types. Explicitly mention if a vulnerability spans multiple files/components. Include a section for "Dependency Vulnerabilities" if `check_dependencies` was used and found issues.
-    3. Suggested Fixes (with example code/configuration and links if possible and helpful). Specify which file the fix applies to.
-    ---------------------------------
+    For a single file analysis:
+    <file>
+    <name>filename.py</name>
+    # File Analysis Report
+
+    ## 1. Summary of File/Code Purpose
+    [Provide a clear and concise description of what this file does and its role in the project]
+
+    ## 2. Detected Vulnerabilities
+    ### High Severity Issues
+    - **Issue Title** (Line X)
+      - Description of the vulnerability
+      - Why it's dangerous
+      - Relevant CVE/CWE/OWASP references
+      - Impact assessment
+
+    ### Medium Severity Issues
+    - **Issue Title** (Line X)
+      - Description of the vulnerability
+      - Why it's dangerous
+      - Relevant CVE/CWE/OWASP references
+      - Impact assessment
+
+    ### Low Severity Issues
+    - **Issue Title** (Line X)
+      - Description of the vulnerability
+      - Why it's dangerous
+      - Relevant CVE/CWE/OWASP references
+      - Impact assessment
+
+    ## 3. Suggested Fixes
+    ### Fix for [Issue Title]
+    ```python
+    # Before
+    vulnerable_code_here
+
+    # After
+    secure_code_here
+    ```
+    - Explanation of the fix
+    - Why it's more secure
+    - Additional security considerations
+    </file>
+
+    For multiple files/directory analysis:
+    <file>
+    <name>summary</name>
+    # Project Security Summary
+
+    ## 1. Overall Project Summary
+    - Project purpose and main functionality
+    - Key components and their relationships
+    - Technology stack overview
+
+    ## 2. Most Critical Vulnerabilities Found
+    ### High Priority Issues
+    - **Issue Title** (File: X, Line: Y)
+      - Brief description
+      - Severity level
+      - Potential impact
+
+    ### Medium Priority Issues
+    - **Issue Title** (File: X, Line: Y)
+      - Brief description
+      - Severity level
+      - Potential impact
+
+    ## 3. Summary of Dependency Vulnerabilities
+    - List of vulnerable dependencies
+    - Severity levels
+    - Recommended updates/alternatives
+
+    ## 4. General Recommendations
+    - Security best practices to implement
+    - Architectural improvements
+    - Development process suggestions
+    </file>
+
+    <file>
+    <name>file1.py</name>
+    # File Analysis Report
+
+    ## 1. Summary of File/Code Purpose
+    [Provide a clear and concise description of what this file does and its role in the project]
+
+    ## 2. Detected Vulnerabilities
+    ### High Severity Issues
+    - **Issue Title** (Line X)
+      - Description of the vulnerability
+      - Why it's dangerous
+      - Relevant CVE/CWE/OWASP references
+      - Impact assessment
+
+    ### Medium Severity Issues
+    - **Issue Title** (Line X)
+      - Description of the vulnerability
+      - Why it's dangerous
+      - Relevant CVE/CWE/OWASP references
+      - Impact assessment
+
+    ### Low Severity Issues
+    - **Issue Title** (Line X)
+      - Description of the vulnerability
+      - Why it's dangerous
+      - Relevant CVE/CWE/OWASP references
+      - Impact assessment
+
+    ## 3. Suggested Fixes
+    ### Fix for [Issue Title]
+    ```python
+    # Before
+    vulnerable_code_here
+
+    # After
+    secure_code_here
+    ```
+    - Explanation of the fix
+    - Why it's more secure
+    - Additional security considerations
+    </file>
+
+    <file>
+    <name>file2.py</name>
+    1. Summary of File/Code Purpose
+    2. Detected Vulnerabilities
+    3. Suggested Fixes
+    </file>
     </answer>
 
     The answer should be well-structured and easily readable.
@@ -134,7 +251,7 @@ def _():
       - The most critical vulnerabilities found across ALL file types.
       - A summary of any known vulnerabilities found in third-party dependencies.
       - General recommendations or patterns observed.
-    Then, provide a detailed report for each *relevant* file analyzed (prioritize Python files and any non-Python files where issues were found). All reports (summary and per-file) should be in one answer block, separated by "---------------------------------".
+    Then, provide a detailed report for each *relevant* file analyzed (prioritize Python files and any non-Python files where issues were found).
     Use the name "summary" for the summary section. If only a single file was analyzed, omit the summary block.
     """
     return (system_prompt,)
@@ -470,87 +587,257 @@ def _(Any, Dict, Optional, json, markdown, os, re):
         """
         Splits a SecureSage response block into individual sections per file and
         writes each to its own .md and/or .html file.
-        Sections should start with:   Name of the file being analyzed: <filename>
-        and end with:               ---------------------------------
+        Sections should be wrapped in <file><name>filename</name>content</file> tags.
         If no filename is found, a default name will be generated.
         """
         if not generate_md and not generate_html:
             print("Info: No output format selected (generate_md and generate_html are both False). No reports written.")
             return
 
-        os.makedirs(output_dir, exist_ok=True)
+        # Create folder based on the code path
+        if os.path.isfile(CODE_PATH):
+            # If it's a single file, use the filename without extension
+            folder_name = os.path.splitext(os.path.basename(CODE_PATH))[0]
+        else:
+            # If it's a directory, use the directory name
+            folder_name = os.path.basename(os.path.normpath(CODE_PATH))
+        
+        # Clean up the folder name
+        folder_name = re.sub(r'[^a-zA-Z0-9]', '_', folder_name).lower()
+        folder_name = re.sub(r'_+', '_', folder_name).strip('_')
+        
+        analysis_dir = os.path.join(output_dir, folder_name)
+        os.makedirs(analysis_dir, exist_ok=True)
 
-        # Split at each delimiter
-        # Add a filter to remove empty strings that can result from trailing delimiters
-        sections = [s.strip() for s in raw_answer.strip().split("---------------------------------") if s.strip()]
+        # Find all file sections using regex
+        file_pattern = r"<file>\s*<name>(.*?)</name>(.*?)</file>"
+        sections = re.findall(file_pattern, raw_answer, re.DOTALL)
 
-        for i, section_content in enumerate(sections):
-            # Try to find the file name
-            file_match = re.search(
-                r"Name of the file being analyzed:\s*(.+)", section_content
-            )
+        for i, (file_name, content) in enumerate(sections):
+            file_name = file_name.strip()
+            content = content.strip()
             
-            if file_match:
-                file_name_from_report = file_match.group(1).strip()
-            else:
-                # Generate a default name based on section content and index
-                # Try to find a meaningful title from the content
-                title_match = re.search(r"^#\s*(.+)$", section_content, re.MULTILINE)
+            if not file_name:
+                # Generate a default name based on content
+                title_match = re.search(r"^#\s*(.+)$", content, re.MULTILINE)
                 if title_match:
-                    file_name_from_report = title_match.group(1).strip()
+                    file_name = title_match.group(1).strip()
                 else:
-                    # If no title found, use the first line or a default name
-                    first_line = section_content.split('\n')[0].strip()
-                    if first_line and len(first_line) < 50:  # Use first line if it's not too long
-                        file_name_from_report = first_line
+                    first_line = content.split('\n')[0].strip()
+                    if first_line and len(first_line) < 50:
+                        file_name = first_line
                     else:
-                        file_name_from_report = f"report_{i+1}"
+                        file_name = f"report_{i+1}"
 
-            safe_name_base = sanitize_filename(file_name_from_report)
-
-            report_title = f"# SecureSage Security Report: {file_name_from_report}\n\n"
+            # Create a simpler filename
+            if file_name.lower() == "summary":
+                safe_name_base = "summary"
+            else:
+                # Remove common prefixes and extensions
+                base_name = os.path.splitext(os.path.basename(file_name))[0]
+                # Remove any "report", "analysis", "security" words
+                base_name = re.sub(r'(report|analysis|security|vulnerability|audit)[-_]?', '', base_name, flags=re.IGNORECASE)
+                # Remove any remaining special characters and convert spaces to underscores
+                safe_name_base = re.sub(r'[^a-zA-Z0-9]', '_', base_name).lower()
+                # Remove multiple underscores and trim
+                safe_name_base = re.sub(r'_+', '_', safe_name_base).strip('_')
+                # If the name is too long, truncate it
+                if len(safe_name_base) > 30:
+                    safe_name_base = safe_name_base[:30]
 
             if generate_md:
-                md_file_path = os.path.join(output_dir, f"{safe_name_base}.md")
+                md_file_path = os.path.join(analysis_dir, f"{safe_name_base}.md")
                 try:
                     with open(md_file_path, "w", encoding="utf-8") as f:
-                        f.write(section_content)
+                        f.write(content)
                         f.write("\n")
                 except Exception as e:
                     print(f"Error writing MD file: {e}")
 
             if generate_html:
-                html_file_path = os.path.join(output_dir, f"{safe_name_base}.html")
+                html_file_path = os.path.join(analysis_dir, f"{safe_name_base}.html")
                 try:
+                    # Convert the Markdown content to HTML
                     html_content = markdown.markdown(
-                        section_content, 
-                        extensions=['fenced_code', 'tables', 'nl2br']
+                        content, 
+                        extensions=['fenced_code', 'tables', 'nl2br', 'sane_lists']
                     )
 
+                    # Enhanced HTML template with modern styling
                     html_template = f"""<!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>SecureSage Report: {file_name_from_report}</title>
-        <style>
-            body {{ font-family: sans-serif; line-height: 1.6; margin: 20px; max-width: 800px; margin-left: auto; margin-right: auto; }}
-            h1, h2, h3 {{ color: #333; }}
-            pre {{ background-color: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }}
-            code {{ font-family: monospace; }}
-            table {{ border-collapse: collapse; width: 100%; margin-bottom: 1em; }}
-            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-            th {{ background-color: #f2f2f2; }}
-        </style>
-    </head>
-    <body>
-        {html_content}
-    </body>
-    </html>"""
+                    <html lang="en">
+                    <head>
+                        <meta charset="UTF-8">
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        <title>{file_name}</title>
+                        <style>
+                            :root {{
+                                --primary-color: #2c3e50;
+                                --secondary-color: #3498db;
+                                --accent-color: #e74c3c;
+                                --background-color: #f8f9fa;
+                                --text-color: #2c3e50;
+                                --code-bg: #f1f1f1;
+                                --border-color: #dee2e6;
+                            }}
+
+                            body {{
+                                font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+                                line-height: 1.6;
+                                margin: 0;
+                                padding: 0;
+                                background-color: var(--background-color);
+                                color: var(--text-color);
+                            }}
+
+                            .container {{
+                                max-width: 1000px;
+                                margin: 0 auto;
+                                padding: 2rem;
+                                background: white;
+                                box-shadow: 0 0 20px rgba(0,0,0,0.1);
+                                min-height: 100vh;
+                            }}
+
+                            h1 {{
+                                color: var(--primary-color);
+                                border-bottom: 3px solid var(--secondary-color);
+                                padding-bottom: 0.5rem;
+                                margin-top: 0;
+                                font-size: 1.8rem;
+                            }}
+
+                            h2 {{
+                                color: var(--primary-color);
+                                margin-top: 2rem;
+                                border-left: 4px solid var(--secondary-color);
+                                padding-left: 1rem;
+                                font-size: 1.5rem;
+                            }}
+
+                            h3 {{
+                                color: var(--primary-color);
+                                margin-top: 1.5rem;
+                                font-size: 1.2rem;
+                            }}
+
+                            pre {{
+                                background-color: var(--code-bg);
+                                padding: 1.5rem;
+                                border-radius: 8px;
+                                overflow-x: auto;
+                                border: 1px solid var(--border-color);
+                                margin: 1rem 0;
+                            }}
+
+                            code {{
+                                font-family: 'Fira Code', 'Consolas', monospace;
+                                font-size: 0.9em;
+                                background-color: var(--code-bg);
+                                padding: 0.2em 0.4em;
+                                border-radius: 3px;
+                            }}
+
+                            pre code {{
+                                padding: 0;
+                                background: none;
+                            }}
+
+                            table {{
+                                border-collapse: collapse;
+                                width: 100%;
+                                margin: 1.5rem 0;
+                                border-radius: 8px;
+                                overflow: hidden;
+                                box-shadow: 0 0 10px rgba(0,0,0,0.1);
+                            }}
+
+                            th, td {{
+                                padding: 1rem;
+                                text-align: left;
+                                border: 1px solid var(--border-color);
+                            }}
+
+                            th {{
+                                background-color: var(--primary-color);
+                                color: white;
+                                font-weight: 600;
+                            }}
+
+                            tr:nth-child(even) {{
+                                background-color: #f8f9fa;
+                            }}
+
+                            tr:hover {{
+                                background-color: #f1f1f1;
+                            }}
+
+                            .severity-high {{
+                                color: #dc3545;
+                                font-weight: bold;
+                            }}
+
+                            .severity-medium {{
+                                color: #fd7e14;
+                                font-weight: bold;
+                            }}
+
+                            .severity-low {{
+                                color: #28a745;
+                                font-weight: bold;
+                            }}
+
+                            .vulnerability {{
+                                background-color: #fff3cd;
+                                border-left: 4px solid #ffc107;
+                                padding: 1rem;
+                                margin: 1rem 0;
+                                border-radius: 0 4px 4px 0;
+                            }}
+
+                            .fix-suggestion {{
+                                background-color: #d4edda;
+                                border-left: 4px solid #28a745;
+                                padding: 1rem;
+                                margin: 1rem 0;
+                                border-radius: 0 4px 4px 0;
+                            }}
+
+                            .summary {{
+                                background-color: #e2e3e5;
+                                border-left: 4px solid #6c757d;
+                                padding: 1rem;
+                                margin: 1rem 0;
+                                border-radius: 0 4px 4px 0;
+                            }}
+
+                            @media (max-width: 768px) {{
+                                .container {{
+                                    padding: 1rem;
+                                }}
+                                
+                                pre {{
+                                    padding: 1rem;
+                                }}
+                                
+                                th, td {{
+                                    padding: 0.75rem;
+                                }}
+                            }}
+                        </style>
+                    </head>
+                    <body>
+                        <div class="container">
+                            {html_content}
+                        </div>
+                    </body>
+                    </html>"""
                     with open(html_file_path, "w", encoding="utf-8") as f:
                         f.write(html_template)
                 except Exception as e:
                     print(f"Error writing HTML file: {e}")
+
+        print(f"\nReports have been saved to: {analysis_dir}")
 
     return (
         parse_answer_from_response,
