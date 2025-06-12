@@ -10,7 +10,20 @@ app = marimo.App(
 
 @app.cell
 def _():
-    CODE_PATH = "./example_code/code4.py"
+    import sys
+    def get_code_path():
+        # Check if path is provided as command line argument
+        if len(sys.argv) > 1:
+            return sys.argv[1]
+        
+        # If no argument provided, prompt the user
+        while True:
+            path = input("Enter the path to analyze (file or directory): ").strip()
+            if os.path.exists(path):
+                return path
+            print(f"Error: Path '{path}' does not exist. Please try again.")
+
+    CODE_PATH = get_code_path()
     return (CODE_PATH,)
 
 
@@ -27,7 +40,6 @@ def _():
     import json
     import ast
     import requests
-    import sys
     import markdown
     dotenv.load_dotenv()
 
@@ -458,8 +470,9 @@ def _(Any, Dict, Optional, json, markdown, os, re):
         """
         Splits a SecureSage response block into individual sections per file and
         writes each to its own .md and/or .html file.
-        Sections must start with:   Name of the file being analyzed: <filename>
+        Sections should start with:   Name of the file being analyzed: <filename>
         and end with:               ---------------------------------
+        If no filename is found, a default name will be generated.
         """
         if not generate_md and not generate_html:
             print("Info: No output format selected (generate_md and generate_html are both False). No reports written.")
@@ -471,45 +484,49 @@ def _(Any, Dict, Optional, json, markdown, os, re):
         # Add a filter to remove empty strings that can result from trailing delimiters
         sections = [s.strip() for s in raw_answer.strip().split("---------------------------------") if s.strip()]
 
-        for section_content in sections:
-            # Find the file name
+        for i, section_content in enumerate(sections):
+            # Try to find the file name
             file_match = re.search(
-                r"Name of the file being analyzed:\s*(.+)", section_content # Use section_content
+                r"Name of the file being analyzed:\s*(.+)", section_content
             )
-            if not file_match:
-                print(f"Warning: Could not find 'Name of the file being analyzed:' in section. Skipping block:\n---\n{section_content[:200]}...\n---")
-                continue 
+            
+            if file_match:
+                file_name_from_report = file_match.group(1).strip()
+            else:
+                # Generate a default name based on section content and index
+                # Try to find a meaningful title from the content
+                title_match = re.search(r"^#\s*(.+)$", section_content, re.MULTILINE)
+                if title_match:
+                    file_name_from_report = title_match.group(1).strip()
+                else:
+                    # If no title found, use the first line or a default name
+                    first_line = section_content.split('\n')[0].strip()
+                    if first_line and len(first_line) < 50:  # Use first line if it's not too long
+                        file_name_from_report = first_line
+                    else:
+                        file_name_from_report = f"report_{i+1}"
 
-            file_name_from_report = file_match.group(1).strip()
-            safe_name_base = sanitize_filename(file_name_from_report) # Get base for filenames
+            safe_name_base = sanitize_filename(file_name_from_report)
 
             report_title = f"# SecureSage Security Report: {file_name_from_report}\n\n"
-            # The content for the file should not include the "Name of the file being analyzed:" line itself,
-            # if we are already putting it in the title or if the safe_name_base is enough.
-            # Let's keep the section_content as is for now, as it's structured by the LLM.
 
             if generate_md:
                 md_file_path = os.path.join(output_dir, f"{safe_name_base}.md")
                 try:
                     with open(md_file_path, "w", encoding="utf-8") as f:
-                        # f.write(report_title) # The report_title might be redundant if section_content already has it
-                        f.write(section_content) # section_content already contains "Name of the file..."
+                        f.write(section_content)
                         f.write("\n")
                 except Exception as e:
-                    print(e)
+                    print(f"Error writing MD file: {e}")
 
             if generate_html:
                 html_file_path = os.path.join(output_dir, f"{safe_name_base}.html")
                 try:
-                    # Convert the Markdown section content to HTML
-                    # You can add extensions for more features, e.g., 'markdown.extensions.fenced_code' for code blocks
-                    # 'markdown.extensions.tables' for tables, etc.
                     html_content = markdown.markdown(
                         section_content, 
-                        extensions=['fenced_code', 'tables', 'nl2br'] # nl2br for line breaks
+                        extensions=['fenced_code', 'tables', 'nl2br']
                     )
 
-                    # Basic HTML structure
                     html_template = f"""<!DOCTYPE html>
     <html lang="en">
     <head>
@@ -533,7 +550,7 @@ def _(Any, Dict, Optional, json, markdown, os, re):
                     with open(html_file_path, "w", encoding="utf-8") as f:
                         f.write(html_template)
                 except Exception as e:
-                    print(e)
+                    print(f"Error writing HTML file: {e}")
 
     return (
         parse_answer_from_response,
