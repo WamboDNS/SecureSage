@@ -7,27 +7,12 @@ Thanks to marimo's format, you can run the notebook as well as the app.
 
 ## Core Capabilities
 
-*   **ReAct-Style Agent Loop:** Employs a reasoning and acting cycle where the agent makes decisions, executes tools, and processes results iteratively.
-*   **Comprehensive Python Security Analysis:**
-    *   **Dependency Scanning:** Checks project dependencies (e.g., `requirements.txt`, lock files) for known vulnerabilities using `pip-audit`.
-    *   **Insecure Code Pattern Detection:** Identifies common insecure coding practices in Python code, including:
-        - OWASP Top 10 vulnerabilities
-        - Command injection and shell command execution
-        - Insecure deserialization
-        - Hardcoded secrets and credentials
-        - SQL injection
-        - Cross-site scripting (XSS)
-        - Insecure file operations
-        - Unsafe eval() and exec() usage
-    *   **AST Analysis:** Performs deep code analysis to identify:
-        - Function definitions and their inputs
-        - Risky function calls (eval, exec, os.system, etc.)
-        - Import statements and their security implications
-        - Data flow patterns that could lead to vulnerabilities
-    *   **Vulnerability Remediation Guidance:** Suggests specific code modifications to address identified vulnerabilities and explains the underlying security principles.
-    *   **Contextual Analysis:** Capable of analyzing individual Python files or recursively scanning entire project directories to understand inter-file dependencies and data flow.
-*   **Transparent Execution:** All agent operations, including internal "thoughts," tool calls, and tool outputs, are visible within the Jupyter/Marimo Notebook environment, facilitating understanding and debugging.
-*   **Structured Reporting:** Generates clear Markdown reports in the `reports/` directory, detailing security findings, their severity, and suggested fixes.
+- **Comprehensive Security Analysis**: Identifies vulnerabilities in Python code, including insecure deserialization, command injection, hardcoded secrets, and OWASP Top 10 issues
+- **Dependency Scanning**: Checks for known vulnerabilities in project dependencies using pip-audit
+- **Configuration Review**: Analyzes configuration files for security misconfigurations and exposed secrets
+- **Smart Documentation**: Generates detailed security reports in both Markdown and HTML formats with modern styling
+- **AI-Powered Analysis**: Uses GPT-4.1 for intelligent code review and vulnerability assessment
+- **External Knowledge Integration**: Leverages Brave Search API to validate findings against current security best practices
 
 ## Agent Operation Overview
 
