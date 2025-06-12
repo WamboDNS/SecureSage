@@ -88,12 +88,6 @@ SecureSage functions based on the ReAct (Reasoning and Acting) paradigm:
 
 SecureSage generates detailed security reports in both Markdown and HTML formats. The reports are saved in the `reports/` directory with the following features:
 
-* **Automatic File Naming**: Reports are named based on:
-  * The explicit file name if provided in the analysis
-  * The first Markdown title found in the content
-  * The first line of content (if not too long)
-  * A sequential number (report_1, report_2, etc.) as a fallback
-
 * **Report Format**: Each report includes:
   * A summary of the file/project purpose
   * Detected vulnerabilities with severity levels
