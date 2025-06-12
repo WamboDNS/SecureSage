@@ -281,8 +281,6 @@ def _(
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     return f.read()
-            except UnicodeDecodeError:
-                return f"[Binary file: {os.path.basename(file_path)}]"
             except Exception as e:
                 return f"[Error reading {os.path.basename(file_path)}: {e}]"
 
@@ -493,13 +491,6 @@ def _(
                 response["status_message"] = "No vulnerabilities found" if "No known vulnerabilities found" in result.stdout else "Review stdout for details"
 
             return json.dumps(response, indent=2)
-
-        except FileNotFoundError:
-            return json.dumps({
-                "error": f"pip-audit not found in {sys.prefix}",
-                "source_checked": project_path,
-                "command_attempted": " ".join(cmd)
-            })
         except Exception as e:
             return json.dumps({
                 "error": f"Unexpected error: {e}",
@@ -517,7 +508,7 @@ def _(
 
 
 @app.cell
-def _(Any, Dict, Optional, json, markdown, os, re):
+def _(Any, CODE_PATH, Dict, Optional, json, markdown, os, re):
     def parse_thinking_from_response(response: str) -> Optional[str]:
         """Extract the <think> block from the LLM response."""
         match = re.search(r"<think>(.*?)</think>", response, re.DOTALL)
@@ -565,11 +556,11 @@ def _(Any, Dict, Optional, json, markdown, os, re):
         name = re.sub(r"^[./\\]+", "", name)  # Handle double leading slashes
 
         # Convert to slug format
-        slug = name.split(".")[0]  # Remove extension
+        slug = name.split(".")[0]
         slug = slug.lower()
-        slug = re.sub(r"[^a-z0-9\-]+", "-", slug)  # Replace non-alphanumeric with hyphens
-        slug = re.sub(r"-+", "-", slug)  # Collapse multiple hyphens
-        slug = slug.strip("-")  # Remove leading/trailing hyphens
+        slug = re.sub(r"[^a-z0-9\-]+", "-", slug)
+        slug = re.sub(r"-+", "-", slug)
+        slug = slug.strip("-")
 
         # Handle empty result
         if not slug:
@@ -594,31 +585,25 @@ def _(Any, Dict, Optional, json, markdown, os, re):
             print("Info: No output format selected (generate_md and generate_html are both False). No reports written.")
             return
 
-        # Create folder based on the code path
         if os.path.isfile(CODE_PATH):
-            # If it's a single file, use the filename without extension
             folder_name = os.path.splitext(os.path.basename(CODE_PATH))[0]
         else:
-            # If it's a directory, use the directory name
             folder_name = os.path.basename(os.path.normpath(CODE_PATH))
-        
-        # Clean up the folder name
+
         folder_name = re.sub(r'[^a-zA-Z0-9]', '_', folder_name).lower()
         folder_name = re.sub(r'_+', '_', folder_name).strip('_')
-        
+
         analysis_dir = os.path.join(output_dir, folder_name)
         os.makedirs(analysis_dir, exist_ok=True)
 
-        # Find all file sections using regex
         file_pattern = r"<file>\s*<name>(.*?)</name>(.*?)</file>"
         sections = re.findall(file_pattern, raw_answer, re.DOTALL)
 
         for i, (file_name, content) in enumerate(sections):
             file_name = file_name.strip()
             content = content.strip()
-            
+
             if not file_name:
-                # Generate a default name based on content
                 title_match = re.search(r"^#\s*(.+)$", content, re.MULTILINE)
                 if title_match:
                     file_name = title_match.group(1).strip()
@@ -629,19 +614,13 @@ def _(Any, Dict, Optional, json, markdown, os, re):
                     else:
                         file_name = f"report_{i+1}"
 
-            # Create a simpler filename
             if file_name.lower() == "summary":
                 safe_name_base = "summary"
             else:
-                # Remove common prefixes and extensions
                 base_name = os.path.splitext(os.path.basename(file_name))[0]
-                # Remove any "report", "analysis", "security" words
                 base_name = re.sub(r'(report|analysis|security|vulnerability|audit)[-_]?', '', base_name, flags=re.IGNORECASE)
-                # Remove any remaining special characters and convert spaces to underscores
                 safe_name_base = re.sub(r'[^a-zA-Z0-9]', '_', base_name).lower()
-                # Remove multiple underscores and trim
                 safe_name_base = re.sub(r'_+', '_', safe_name_base).strip('_')
-                # If the name is too long, truncate it
                 if len(safe_name_base) > 30:
                     safe_name_base = safe_name_base[:30]
 
@@ -815,11 +794,11 @@ def _(Any, Dict, Optional, json, markdown, os, re):
                                 .container {{
                                     padding: 1rem;
                                 }}
-                                
+
                                 pre {{
                                     padding: 1rem;
                                 }}
-                                
+
                                 th, td {{
                                     padding: 0.75rem;
                                 }}
