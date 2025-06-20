@@ -22,6 +22,11 @@ SecureSage functions based on the ReAct (Reasoning and Acting) paradigm:
 3.  **Observation:** The output from the tool is returned to the LLM.
 4.  The LLM processes this new information, repeating the cycle or concluding with a final security report if sufficient information has been gathered. This iterative approach allows for adaptive analysis based on discovered findings.
 
+## Preview 
+
+https://github.com/user-attachments/assets/06bd1906-200e-4a01-8f68-08135553898c
+
+
 ## Requirements
 
 * Python >= 3.13
