@@ -22,6 +22,11 @@ SecureSage functions based on the ReAct (Reasoning and Acting) paradigm:
 3.  **Observation:** The output from the tool is returned to the LLM.
 4.  The LLM processes this new information, repeating the cycle or concluding with a final security report if sufficient information has been gathered. This iterative approach allows for adaptive analysis based on discovered findings.
 
+## Preview 
+
+https://github.com/user-attachments/assets/06bd1906-200e-4a01-8f68-08135553898c
+
+
 ## Requirements
 
 * Python >= 3.13
@@ -87,12 +92,6 @@ SecureSage functions based on the ReAct (Reasoning and Acting) paradigm:
 ## Report Generation
 
 SecureSage generates detailed security reports in both Markdown and HTML formats. The reports are saved in the `reports/` directory with the following features:
-
-* **Automatic File Naming**: Reports are named based on:
-  * The explicit file name if provided in the analysis
-  * The first Markdown title found in the content
-  * The first line of content (if not too long)
-  * A sequential number (report_1, report_2, etc.) as a fallback
 
 * **Report Format**: Each report includes:
   * A summary of the file/project purpose
