@@ -37,6 +37,9 @@ def _():
     import ast
     import requests
     import markdown
+    import asyncio
+    import aiohttp
+    import concurrent.futures
     dotenv.load_dotenv()
 
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
@@ -53,7 +56,10 @@ def _():
         Optional,
         Tuple,
         Union,
+        aiohttp,
         ast,
+        asyncio,
+        concurrent,
         json,
         markdown,
         os,
@@ -66,10 +72,11 @@ def _():
 
 @app.cell
 def _(OPENAI_API_KEY, OpenAI):
+    from openai import AsyncOpenAI
     model = "gpt-4.1"
     base_URL = "https://api.openai.com/v1"
-    client = OpenAI(api_key=OPENAI_API_KEY, base_url=base_URL)
-    return client, model
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY, base_url=base_URL)
+    return AsyncOpenAI, client, model
 
 
 @app.cell
@@ -87,7 +94,7 @@ def _():
     - doc_search_with_brave(query: str) -> str: Performs a live search using the Brave Search API to retrieve recent documentation and best practices from sources like OWASP, CWE, and security blogs. The results are summarized using your reasoning ability. Use this tool when you need external context or to validate the risk or mitigation of a specific pattern identified in ANY file type.
     - suggest_fix(issue: str, code_snippet: str) -> str: Proposes a secure version of a code snippet that mitigates a vulnerability. This is primarily for Python code, but can be adapted for configuration files if the issue is simple (e.g., removing a hardcoded secret). Clearly state if the fix applies to a non-Python file.
 
-    You may call one tool per turn, for up to 15 turns, before giving your final answer.
+    You may call multiple tools per turn (for parallel execution), for up to 15 turns, before giving your final answer.
 
     When analyzing a directory with multiple files, or a single file that might be part of a larger project:
     - First, load all files using `load_files` to get a comprehensive overview of the project.
@@ -107,11 +114,28 @@ def _():
     <think>
     [Explain what you're doing next, what you need, or what issue you're focusing on. Explicitly state which file(s) you are examining and if you intend to pass specific file content to a tool, confirm its type is appropriate for that tool (e.g., "Passing content of 'utils.py' to static_analysis as it is Python code." or "Reviewing 'config.json' for hardcoded secrets."). If dependency files are present, explicitly state the 'project_path' you intend to use for `check_dependencies`.]
     </think>
-    <tool>
-    JSON with the following fields:
-    - name: The name of the tool to call
-    - args: A dictionary of arguments to pass to the tool (must be valid JSON)
-    </tool>
+    <tools>
+    [
+        {
+            "name": "tool_name",
+            "args": {"arg1": "value1", "arg2": "value2"}
+        },
+        {
+            "name": "another_tool_name", 
+            "args": {"arg1": "value1"}
+        }
+    ]
+    </tools>
+
+    You can call multiple tools in parallel by including multiple tool objects in the tools array. This allows for efficient concurrent execution of independent operations like analyzing different files or running multiple types of analysis on the same code.
+
+    Examples of effective parallel tool usage:
+    - Analyzing multiple Python files simultaneously with static_analysis and parse_ast
+    - Running dependency checks while analyzing source files
+    - Searching for documentation while performing static analysis
+    - Generating fixes for multiple vulnerabilities at once
+
+    Use parallel execution when tools don't depend on each other's output. Use sequential execution when one tool's output is needed as input for another tool.
 
     When you are done, provide a clear and structured security review in the following format:
 
@@ -263,8 +287,11 @@ def _(
     List,
     Tuple,
     Union,
+    aiohttp,
     ast,
+    asyncio,
     client,
+    concurrent,
     json,
     os,
     requests,
@@ -272,12 +299,12 @@ def _(
     sys,
     tempfile,
 ):
-    def load_files(path: Union[str, os.PathLike]) -> List[Tuple[str, str]]:
+    async def load_files(path: Union[str, os.PathLike]) -> List[Tuple[str, str]]:
         """Load all non-hidden files from a path, returning [(file_path, content), ...]"""
         files = []
         path = os.path.normpath(path)
 
-        def read_file(file_path: str) -> str:
+        async def read_file(file_path: str) -> str:
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     return f.read()
@@ -285,15 +312,22 @@ def _(
                 return f"[Error reading {os.path.basename(file_path)}: {e}]"
 
         if os.path.isfile(path):
-            files.append((path, read_file(path)))
+            files.append((path, await read_file(path)))
         elif os.path.isdir(path):
+            # Collect all file paths first
+            file_paths = []
             for root, dirs, filenames in os.walk(path):
                 dirs[:] = [d for d in dirs if not d.startswith(".")]
                 for filename in filenames:
                     if not filename.startswith("."):
                         full_path = os.path.join(root, filename)
                         if os.path.isfile(full_path):
-                            files.append((full_path, read_file(full_path)))
+                            file_paths.append(full_path)
+            
+            # Read all files concurrently
+            tasks = [read_file(file_path) for file_path in file_paths]
+            file_contents = await asyncio.gather(*tasks)
+            files = list(zip(file_paths, file_contents))
         else:
             raise ValueError(f"Invalid path: {path}")
 
@@ -303,17 +337,20 @@ def _(
         return files
 
 
-    def static_analysis(code: str) -> list:
+    async def static_analysis(code: str) -> list:
         with tempfile.NamedTemporaryFile(
             suffix=".py", mode="w+", delete=False
         ) as tmp:
             tmp.write(code)
             tmp.flush()
-            result = subprocess.run(
-                [sys.executable, "-m", "bandit", "-f", "json", tmp.name], capture_output=True, text=True
+            result = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "bandit", "-f", "json", tmp.name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
+            stdout, stderr = await result.communicate()
             try:
-                output = json.loads(result.stdout)
+                output = json.loads(stdout.decode("utf-8"))
                 return [
                     {
                         "line": item["line_number"],
@@ -328,55 +365,61 @@ def _(
                 return [{"error": str(e)}]
 
 
-    def parse_ast(code: str) -> dict:
-        tree = ast.parse(code)
-        functions = []
-        risky_calls = []
-        imports = []
+    async def parse_ast(code: str) -> dict:
+        # Run CPU-bound AST parsing in a thread pool
+        def _parse_ast_sync(code: str) -> dict:
+            tree = ast.parse(code)
+            functions = []
+            risky_calls = []
+            imports = []
 
-        class Analyzer(ast.NodeVisitor):
-            def visit_FunctionDef(self, node):
-                functions.append(node.name)
-                self.generic_visit(node)
+            class Analyzer(ast.NodeVisitor):
+                def visit_FunctionDef(self, node):
+                    functions.append(node.name)
+                    self.generic_visit(node)
 
-            def visit_Call(self, node):
-                if isinstance(node.func, ast.Attribute):
-                    func_name = f"{ast.unparse(node.func.value)}.{node.func.attr}"
-                    if func_name in [
-                        "os.system",
-                        "eval",
-                        "exec",
-                        "pickle.load",
-                        "subprocess.Popen",
-                    ]:
-                        risky_calls.append(
-                            {
-                                "line": node.lineno,
-                                "call": func_name,
-                                "arg": ast.unparse(node.args[0])
-                                if node.args
-                                else "",
-                            }
-                        )
-                self.generic_visit(node)
+                def visit_Call(self, node):
+                    if isinstance(node.func, ast.Attribute):
+                        func_name = f"{ast.unparse(node.func.value)}.{node.func.attr}"
+                        if func_name in [
+                            "os.system",
+                            "eval",
+                            "exec",
+                            "pickle.load",
+                            "subprocess.Popen",
+                        ]:
+                            risky_calls.append(
+                                {
+                                    "line": node.lineno,
+                                    "call": func_name,
+                                    "arg": ast.unparse(node.args[0])
+                                    if node.args
+                                    else "",
+                                }
+                            )
+                    self.generic_visit(node)
 
-            def visit_Import(self, node):
-                for alias in node.names:
-                    imports.append(alias.name)
+                def visit_Import(self, node):
+                    for alias in node.names:
+                        imports.append(alias.name)
 
-            def visit_ImportFrom(self, node):
-                imports.append(node.module)
+                def visit_ImportFrom(self, node):
+                    imports.append(node.module)
 
-        Analyzer().visit(tree)
+            Analyzer().visit(tree)
 
-        return {
-            "functions": functions,
-            "risky_calls": risky_calls,
-            "imports": imports,
-        }
+            return {
+                "functions": functions,
+                "risky_calls": risky_calls,
+                "imports": imports,
+            }
+        
+        # Run in thread pool for better async behavior
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            return await asyncio.get_event_loop().run_in_executor(executor, _parse_ast_sync, code)
 
 
-    def brave_search(query: str) -> list[str]:
+    async def brave_search(query: str) -> list[str]:
         url = "https://api.search.brave.com/res/v1/web/search"
         headers = {
             "Accept": "application/json",
@@ -384,16 +427,18 @@ def _(
         }
         params = {"q": query, "count": 5, "freshness": "Month"}
 
-        resp = requests.get(url, headers=headers, params=params)
-        data = resp.json()
-        results = data.get("web", {}).get("results", [])
-        return [
-            r.get("title", "") + "\n" + r.get("description", "") for r in results
-        ]
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, params=params) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                results = data.get("web", {}).get("results", [])
+                return [
+                    r.get("title", "") + "\n" + r.get("description", "") for r in results
+                ]
 
 
-    def doc_search_with_brave(query: str, model: str = "gpt-4.1") -> str:
-        results = brave_search(query)
+    async def doc_search_with_brave(query: str, model: str = "gpt-4.1") -> str:
+        results = await brave_search(query)
         context = "\n\n".join(results)
 
         prompt = (
@@ -404,14 +449,14 @@ def _(
             "Answer:"
         )
 
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
         )
         return response.choices[0].message.content.strip()
 
 
-    def suggest_fix(
+    async def suggest_fix(
         issue: str, code_snippet: str, model_name: str = "gpt-4.1"
     ) -> str:
         prompt = (
@@ -421,7 +466,7 @@ def _(
             f"Code:\n{code_snippet}"
         )
 
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -429,7 +474,7 @@ def _(
         return response.choices[0].message.content
 
 
-    def check_dependencies(project_path: str) -> str:
+    async def check_dependencies(project_path: str) -> str:
         """
         Checks project dependencies for vulnerabilities using pip-audit.
         Returns JSON string with audit results and metadata.
@@ -467,28 +512,28 @@ def _(
 
         try:
             # Run pip-audit
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
                 cwd=project_path,
-                check=False
             )
+            stdout, stderr = await process.communicate()
 
             # Build response
             response = {
                 "source_audited": f"Audit of {dep_file}",
                 "command_used": " ".join(cmd),
-                "return_code": result.returncode,
-                "stdout": result.stdout,
-                "stderr": result.stderr.strip() or "N/A"
+                "return_code": process.returncode,
+                "stdout": stdout.decode("utf-8").strip() or "N/A",
+                "stderr": stderr.decode("utf-8").strip() or "N/A"
             }
 
             # Add status message
-            if result.returncode != 0:
+            if process.returncode != 0:
                 response["status_message"] = "Vulnerabilities found or error occurred"
             else:
-                response["status_message"] = "No vulnerabilities found" if "No known vulnerabilities found" in result.stdout else "Review stdout for details"
+                response["status_message"] = "No vulnerabilities found" if "No known vulnerabilities found" in stdout.decode("utf-8") else "Review stdout for details"
 
             return json.dumps(response, indent=2)
         except Exception as e:
@@ -515,15 +560,24 @@ def _(Any, CODE_PATH, Dict, Optional, json, markdown, os, re):
         return match.group(1).strip() if match else None
 
 
-    def parse_tool_from_response(response: str) -> Optional[Dict[str, Any]]:
-        """Extract the <tool> call as a dictionary from the LLM response."""
-        match = re.search(r"<tool>(.*?)</tool>", response, re.DOTALL)
+    def parse_tool_from_response(response: str) -> Optional[List[Dict[str, Any]]]:
+        """Extract the <tools> call as a list of dictionaries from the LLM response."""
+        match = re.search(r"<tools>(.*?)</tools>", response, re.DOTALL)
         if not match:
-            return None
+            # Fallback to old format for backward compatibility
+            match = re.search(r"<tool>(.*?)</tool>", response, re.DOTALL)
+            if not match:
+                return None
+            try:
+                single_tool = json.loads(match.group(1))
+                return [single_tool]
+            except json.JSONDecodeError as e:
+                print(f"JSON parsing error in <tool>: {e}")
+                return None
         try:
             return json.loads(match.group(1))
         except json.JSONDecodeError as e:
-            print(f"JSON parsing error in <tool>: {e}")
+            print(f"JSON parsing error in <tools>: {e}")
             return None
 
 
@@ -829,6 +883,7 @@ def _(Any, CODE_PATH, Dict, Optional, json, markdown, os, re):
 @app.cell
 def _(
     CODE_PATH,
+    asyncio,
     check_dependencies,
     client,
     doc_search_with_brave,
@@ -847,7 +902,6 @@ def _(
 ):
     # Agent memory
     messages = [{"role": "system", "content": system_prompt}]
-    tool_call_count = 1
     max_turns = 17
 
     tool_registry = {
@@ -874,73 +928,94 @@ def _(
 
     console = Console()
 
-    while tool_call_count < max_turns:
-        console.print(Panel.fit(
-            f"[bold blue]Agent Turn {tool_call_count}[/bold blue]",
-            border_style="blue"
-        ))
-
-        with Progress() as progress:
-            task = progress.add_task("[cyan]Thinking...", total=None)
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-            )
-
-        reply = response.choices[0].message.content
-        messages.append({"role": "assistant", "content": reply})
-
-        thought = parse_thinking_from_response(reply)
-        if thought:
-            console.print(Panel(
-                thought,
-                title="[bold yellow]Agent Thought[/bold yellow]",
-                border_style="yellow"
+    async def run_agent():
+        tool_call_count = 1
+        while tool_call_count < max_turns:
+            console.print(Panel.fit(
+                f"[bold blue]Agent Turn {tool_call_count}[/bold blue]",
+                border_style="blue"
             ))
 
-        answer = parse_answer_from_response(reply)
-        if answer:
-            split_and_write_answers(answer)
-            console.print("[bold green]Report successfully written to markdown![/bold green]")
-            break
-
-        tool_call = parse_tool_from_response(reply)
-        if not tool_call:
-            console.print("[bold red]No tool call found. Exiting.[/bold red]")
-            console.print(Panel(reply, title="[bold red]Last Response[/bold red]"))
-            break
-
-        tool_name = tool_call["name"]
-        args = tool_call["args"]
-
-        console.print(Panel(
-            f"[bold]Tool:[/bold] {tool_name}\n[bold]Arguments:[/bold]\n{json.dumps(args, indent=2)}",
-            title="[bold blue]Tool Call[/bold blue]",
-            border_style="blue"
-        ))
-
-        tool_func = tool_registry.get(tool_name)
-        if not tool_func:
-            console.print(f"[bold red]Unknown tool: {tool_name}[/bold red]")
-            break
-
-        try:
             with Progress() as progress:
-                task = progress.add_task("[cyan]Executing tool...", total=None)
-                result = tool_func(**args)
-        except Exception as e:
-            result = {"error": str(e)}
-            console.print(f"[bold red]Tool execution failed: {str(e)}[/bold red]")
+                task = progress.add_task("[cyan]Thinking...", total=None)
+                response = await client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                )
 
-        console.print(Panel(
-            Syntax(json.dumps(result, indent=2), "json", theme="monokai"),
-            title="[bold green]Tool Result[/bold green]",
-            border_style="green"
-        ))
+            reply = response.choices[0].message.content
+            messages.append({"role": "assistant", "content": reply})
 
-        messages.append({"role": "user", "content": json.dumps(result, indent=2)})
-        tool_call_count += 1
-        time.sleep(0.5)
+            thought = parse_thinking_from_response(reply)
+            if thought:
+                console.print(Panel(
+                    thought,
+                    title="[bold yellow]Agent Thought[/bold yellow]",
+                    border_style="yellow"
+                ))
+
+            answer = parse_answer_from_response(reply)
+            if answer:
+                split_and_write_answers(answer)
+                console.print("[bold green]Report successfully written to markdown![/bold green]")
+                break
+
+            tool_calls = parse_tool_from_response(reply)
+            if not tool_calls:
+                console.print("[bold red]No tool calls found. Exiting.[/bold red]")
+                console.print(Panel(reply, title="[bold red]Last Response[/bold red]"))
+                break
+
+            # Display all tool calls
+            for i, tool_call in enumerate(tool_calls):
+                tool_name = tool_call["name"]
+                args = tool_call["args"]
+                console.print(Panel(
+                    f"[bold]Tool {i+1}:[/bold] {tool_name}\n[bold]Arguments:[/bold]\n{json.dumps(args, indent=2)}",
+                    title=f"[bold blue]Tool Call {i+1}/{len(tool_calls)}[/bold blue]",
+                    border_style="blue"
+                ))
+
+            # Execute all tools in parallel
+            async def execute_tool(tool_call):
+                tool_name = tool_call["name"]
+                args = tool_call["args"]
+                
+                tool_func = tool_registry.get(tool_name)
+                if not tool_func:
+                    return {"error": f"Unknown tool: {tool_name}"}
+                
+                try:
+                    result = await tool_func(**args)
+                    return {"tool": tool_name, "result": result}
+                except Exception as e:
+                    return {"tool": tool_name, "error": str(e)}
+
+            with Progress() as progress:
+                task = progress.add_task("[cyan]Executing tools...", total=None)
+                results = await asyncio.gather(*[execute_tool(tool_call) for tool_call in tool_calls])
+
+            # Display results
+            combined_results = {}
+            for i, result in enumerate(results):
+                tool_name = result.get("tool", f"tool_{i}")
+                if "error" in result:
+                    console.print(f"[bold red]Tool {tool_name} execution failed: {result['error']}[/bold red]")
+                    combined_results[tool_name] = {"error": result["error"]}
+                else:
+                    console.print(Panel(
+                        Syntax(json.dumps(result["result"], indent=2), "json", theme="monokai"),
+                        title=f"[bold green]Tool Result: {tool_name}[/bold green]",
+                        border_style="green"
+                    ))
+                    combined_results[tool_name] = result["result"]
+
+            messages.append({"role": "user", "content": json.dumps(combined_results, indent=2)})
+            tool_call_count += 1
+            await asyncio.sleep(0.5)
+
+    # Run the async agent
+    asyncio.run(run_agent())
     return
 
 
