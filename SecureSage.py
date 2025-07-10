@@ -52,7 +52,6 @@ def _():
         Dict,
         List,
         OPENAI_API_KEY,
-        OpenAI,
         Optional,
         Tuple,
         Union,
@@ -64,19 +63,17 @@ def _():
         markdown,
         os,
         re,
-        requests,
-        subprocess,
         tempfile,
     )
 
 
 @app.cell
-def _(OPENAI_API_KEY, OpenAI):
+def _(OPENAI_API_KEY):
     from openai import AsyncOpenAI
     model = "gpt-4.1"
     base_URL = "https://api.openai.com/v1"
     client = AsyncOpenAI(api_key=OPENAI_API_KEY, base_url=base_URL)
-    return AsyncOpenAI, client, model
+    return client, model
 
 
 @app.cell
@@ -294,8 +291,6 @@ def _(
     concurrent,
     json,
     os,
-    requests,
-    subprocess,
     sys,
     tempfile,
 ):
@@ -323,7 +318,7 @@ def _(
                         full_path = os.path.join(root, filename)
                         if os.path.isfile(full_path):
                             file_paths.append(full_path)
-            
+
             # Read all files concurrently
             tasks = [read_file(file_path) for file_path in file_paths]
             file_contents = await asyncio.gather(*tasks)
@@ -413,7 +408,7 @@ def _(
                 "risky_calls": risky_calls,
                 "imports": imports,
             }
-        
+
         # Run in thread pool for better async behavior
         with concurrent.futures.ThreadPoolExecutor() as executor:
             return await asyncio.get_event_loop().run_in_executor(executor, _parse_ast_sync, code)
@@ -553,7 +548,7 @@ def _(
 
 
 @app.cell
-def _(Any, CODE_PATH, Dict, Optional, json, markdown, os, re):
+def _(Any, CODE_PATH, Dict, List, Optional, json, markdown, os, re):
     def parse_thinking_from_response(response: str) -> Optional[str]:
         """Extract the <think> block from the LLM response."""
         match = re.search(r"<think>(.*?)</think>", response, re.DOTALL)
@@ -962,9 +957,7 @@ def _(
 
             tool_calls = parse_tool_from_response(reply)
             if not tool_calls:
-                console.print("[bold red]No tool calls found. Exiting.[/bold red]")
-                console.print(Panel(reply, title="[bold red]Last Response[/bold red]"))
-                break
+                console.print("[bold red]No tool calls found. Continue.[/bold red]")
 
             # Display all tool calls
             for i, tool_call in enumerate(tool_calls):
@@ -980,11 +973,11 @@ def _(
             async def execute_tool(tool_call):
                 tool_name = tool_call["name"]
                 args = tool_call["args"]
-                
+
                 tool_func = tool_registry.get(tool_name)
                 if not tool_func:
                     return {"error": f"Unknown tool: {tool_name}"}
-                
+
                 try:
                     result = await tool_func(**args)
                     return {"tool": tool_name, "result": result}
